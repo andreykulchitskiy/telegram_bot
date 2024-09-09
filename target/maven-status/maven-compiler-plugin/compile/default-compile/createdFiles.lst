@@ -1,0 +1,8 @@
+org\rohlik\damage_bot\service\GoogleSheetsService.class
+org\rohlik\damage_bot\service\BagService.class
+org\rohlik\damage_bot\telegramBot\DamageBot.class
+org\rohlik\damage_bot\telegramBot\BotConfig.class
+org\rohlik\damage_bot\DamageBotApplication.class
+org\rohlik\damage_bot\models\Bag.class
+org\rohlik\damage_bot\service\GoogleDriveService.class
+org\rohlik\damage_bot\telegramBot\BotInitializer.class

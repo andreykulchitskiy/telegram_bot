@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  lekarnaapp:
+    image: damage_bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/first_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 061001
+      CONFIG_PATH: /config/damagebot-7e48fa0de157.json
+    depends_on:
+      - db
+    volumes:
+      - ./src/main/resources/damagebot-7e48fa0de157.json:/config/damagebot-7e48fa0de157.json
+
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: first_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 061001
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
