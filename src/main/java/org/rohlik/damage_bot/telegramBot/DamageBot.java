@@ -61,122 +61,143 @@ public class DamageBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        // Check if the update contains a message
         if (update.hasMessage()) {
             Long chatId = update.getMessage().getChatId();
-            // Retrieves or creates a new Bag object associated with the chat ID
             Bag bag = bagMap.computeIfAbsent(chatId, id -> new Bag());
 
-            // Process text messages from the user
             if (update.getMessage().hasText()) {
                 String messageText = update.getMessage().getText();
                 String messageForControl = validateOfMessage(messageText);
 
-                // Switch based on the current state of the conversation
-                switch (bag.getState()) {
-                    case "INIT":
-                        // Check if the message is a valid bag number
-                        if ("number".equals(messageForControl)) {
-                            if (bagService.controlOfReplicate(messageText)) {
-                                // Inform the user if a bag with the same number already exists
-                                sendMessage(chatId, "Taška s tímto číslem již existuje. Zadejte jiné číslo.");
-                            } else {
-                                // Set the bag number and move to the next state
-                                bag.setNumber(messageText);
-                                bag.setState("AWAITING_STATUS");
-                                sendMessageWithButtons(chatId, "ChooseStatus", "Jaký je stav tašky s číslem " + bag.getNumber() + "?");
-                            }
-                        } else {
-                            // Inform the user if the bag number is invalid
-                            sendMessage(chatId, "Neplatné číslo tašky. Zkuste to znovu, prosím.");
-                        }
-                        break;
-
-                    case "AWAITING_STATUS":
-                        // Handle the bag status selection or number re-entry
-                        if ("number".equals(messageForControl)) {
-                            if (bagService.controlOfReplicate(messageText)) {
-                                sendMessage(chatId, "Taška s tímto číslem již existuje. Zadejte jiné číslo.");
-                            } else {
-                                bag.setStatus("dobra");
-                                bag.setState("COMPLETED");
-                                sendMessage(chatId, "Taška s číslem " + bag.getNumber() + " byla úspěšně zaznamenána jako " + bag.getStatus() + ".");
-                                bagService.reportOk(bag);
-                                bagMap.remove(chatId);
-
-                                // Start a new process for the next bag
-                                Bag newBag = new Bag();
-                                newBag.setNumber(messageText);
-                                newBag.setState("AWAITING_STATUS");
-                                bagMap.put(chatId, newBag);
-                                sendMessageWithButtons(chatId, "ChooseStatus", "Jaký je stav tašky s číslem " + newBag.getNumber() + "?");
-                            }
-                        } else if ("OK".equals(messageForControl)) {
-                            bag.setStatus(messageText.toLowerCase());
-                            bag.setState("COMPLETED");
-                            sendMessage(chatId, "Taška s číslem " + bag.getNumber() + " byla úspěšně zaznamenána jako " + bag.getStatus() + ".");
-                            bagService.reportOk(bag);
-                            bagMap.remove(chatId);
-                        } else if ("NOTOK".equals(messageForControl)) {
-                            bag.setStatus(messageText.toLowerCase());
-                            bag.setState("AWAITING_ERROR");
-                            sendMessageWithButtons(chatId, "BadOptions", "V čem je problém s taškou?");
-                        } else {
-                            sendMessage(chatId, "Vyberte jednu z nabízených možností, prosím.");
-                        }
-                        break;
-
-                    case "AWAITING_ERROR":
-                        // Handle specific error conditions (packing or damage)
-                        if ("PACKING".equals(messageForControl) || "DAMAGE".equals(messageForControl)) {
-                            bag.setError(messageForControl);
-                            bag.setState("AWAITING_IMAGE");
-                            sendMessage(chatId, "Prosím, vyfoťte tašku a pošlete fotku.");
-                        } else {
-                            sendMessage(chatId, "Vyberte jednu z nabízených možností, prosím.");
-                        }
-                        break;
-
-                    case "AWAITING_IMAGE":
-                        sendMessage(chatId, "Prosím, vyfoťte tašku a pošlete fotku.");
-                        break;
-
-                    case "COMPLETED":
-                        // Inform the user that the process is complete and they can submit another bag
-                        sendMessage(chatId, "Proces byl dokončen. Můžete zadat další tašku.");
-                        break;
-
-                    default:
-                        // Handle any unexpected state
-                        sendMessage(chatId, "Došlo k chybě! Zkuste to znovu, prosím.");
-                        bagMap.remove(chatId);
-                        break;
-                }
+                handleTextMessage(chatId, bag, messageText, messageForControl);
             } else if (update.getMessage().hasPhoto() && "AWAITING_IMAGE".equals(bag.getState())) {
-                // Handle photo submission for bag verification
-                List<PhotoSize> photos = update.getMessage().getPhoto();
-                String fileId = photos.get(photos.size() - 1).getFileId();
-                try {
-                    // Retrieve and process the photo
-                    GetFile getFile = new GetFile();
-                    getFile.setFileId(fileId);
-                    File file = execute(getFile);
-                    java.io.File imageFile = downloadFile(file);
-
-                    // Convert photo to byte array and save it to the bag
-                    byte[] imageBytes = Files.readAllBytes(imageFile.toPath());
-                    bag.setImage(imageBytes);
-                    bag.setState("COMPLETED");
-
-                    sendMessage(chatId, "Fotka byla úspěšně přijata. Pokračujte v zadávání tašek.");
-                    bagService.reportNotOk(bag);
-                    bagMap.remove(chatId);
-                } catch (IOException | TelegramApiException e) {
-                    e.printStackTrace();
-                    logError(chatId, e.getMessage());
-                }
+                handlePhotoMessage(update, chatId, bag);
             }
         }
+    }
+
+    // Method to handle text messages based on the current state
+    private void handleTextMessage(Long chatId, Bag bag, String messageText, String messageForControl) {
+        switch (bag.getState()) {
+            case "INIT":
+                handleInitState(chatId, bag, messageText, messageForControl);
+                break;
+            case "AWAITING_STATUS":
+                handleAwaitingStatusState(chatId, bag, messageText, messageForControl);
+                break;
+            case "AWAITING_ERROR":
+                handleAwaitingErrorState(chatId, bag, messageForControl);
+                break;
+            case "AWAITING_IMAGE":
+                sendMessage(chatId, "Prosím, vyfoťte tašku a pošlete fotku.");
+                break;
+            case "COMPLETED":
+                sendMessage(chatId, "Proces byl dokončen. Můžete zadat další tašku.");
+                break;
+            default:
+                sendMessage(chatId, "Došlo k chybě! Zkuste to znovu, prosím.");
+                bagMap.remove(chatId);
+                break;
+        }
+    }
+
+    // Handle the INIT state (bag number input)
+    private void handleInitState(Long chatId, Bag bag, String messageText, String messageForControl) {
+        if ("number".equals(messageForControl)) {
+            if (bagService.controlOfReplicate(messageText)) {
+                sendMessage(chatId, "Taška s tímto číslem již existuje. Zadejte jiné číslo.");
+            } else {
+                bag.setNumber(messageText);
+                bag.setState("AWAITING_STATUS");
+                sendMessageWithButtons(chatId, "ChooseStatus", "Jaký je stav tašky s číslem " + bag.getNumber() + "?");
+            }
+        } else {
+            sendMessage(chatId, "Neplatné číslo tašky. Zkuste to znovu, prosím.");
+        }
+    }
+
+    // Handle the AWAITING_STATUS state (status selection)
+    private void handleAwaitingStatusState(Long chatId, Bag bag, String messageText, String messageForControl) {
+        if ("number".equals(messageForControl)) {
+            if (bagService.controlOfReplicate(messageText)) {
+                sendMessage(chatId, "Taška s tímto číslem již existuje. Zadejte jiné číslo.");
+            } else {
+                createNewBag(chatId, bag, messageText);
+            }
+        } else if ("OK".equals(messageForControl)) {
+            completeBagProcess(chatId, bag, "ok");
+        } else if ("NOTOK".equals(messageForControl)) {
+            bag.setStatus(messageText.toLowerCase());
+            bag.setState("AWAITING_ERROR");
+            sendMessageWithButtons(chatId, "BadOptions", "V čem je problém s taškou?");
+        } else {
+            sendMessage(chatId, "Vyberte jednu z nabízených možností, prosím.");
+        }
+    }
+
+    // Handle the AWAITING_ERROR state (error handling)
+    private void handleAwaitingErrorState(Long chatId, Bag bag, String messageForControl) {
+        if ("PACKING".equals(messageForControl) || "DAMAGE".equals(messageForControl)) {
+            bag.setError(messageForControl);
+            bag.setState("AWAITING_IMAGE");
+            sendMessage(chatId, "Prosím, vyfoťte tašku a pošlete fotku.");
+        } else {
+            sendMessage(chatId, "Vyberte jednu z nabízených možností, prosím.");
+        }
+    }
+
+    // Handle photo messages for bag verification
+    private void handlePhotoMessage(Update update, Long chatId, Bag bag) {
+        List<PhotoSize> photos = update.getMessage().getPhoto();
+        String fileId = photos.get(photos.size() - 1).getFileId();
+
+        try {
+
+            GetFile getFile = new GetFile();
+            getFile.setFileId(fileId);
+
+
+            File file = execute(getFile);
+            java.io.File imageFile = downloadFile(file);
+
+
+            byte[] imageBytes = Files.readAllBytes(imageFile.toPath());
+            bag.setImage(imageBytes);
+            bag.setState("COMPLETED");
+
+
+            sendMessage(chatId, "Fotka byla úspěšně přijata. Pokračujte в zadávání tašek.");
+            bagService.reportNotOk(bag);
+            bagMap.remove(chatId);
+        } catch (IOException | TelegramApiException e) {
+            e.printStackTrace();
+            logError(chatId, e.getMessage());
+        }
+    }
+
+
+    // Completes the bag process
+    private void completeBagProcess(Long chatId, Bag bag, String status) {
+        bag.setStatus(status);
+        bag.setState("COMPLETED");
+        sendMessage(chatId, "Taška s číslem " + bag.getNumber() + " byla úspěšně zaznamenána jako " + bag.getStatus() + ".");
+        bagService.reportOk(bag);
+        bagMap.remove(chatId);
+    }
+
+    // Creates a new bag entry and restarts the process
+    private void createNewBag(Long chatId, Bag oldBag, String newNumber) {
+        oldBag.setStatus("dobra");
+        oldBag.setState("COMPLETED");
+        sendMessage(chatId, "Taška s číslem " + oldBag.getNumber() + " byla úspěšně zaznamenána jako " + oldBag.getStatus() + ".");
+        bagService.reportOk(oldBag);
+        bagMap.remove(chatId);
+
+        Bag newBag = new Bag();
+        newBag.setNumber(newNumber);
+        newBag.setState("AWAITING_STATUS");
+        bagMap.put(chatId, newBag);
+        sendMessageWithButtons(chatId, "ChooseStatus", "Jaký je stav tašky s číslem " + newBag.getNumber() + "?");
     }
 
     // Validates and classifies the incoming message text
