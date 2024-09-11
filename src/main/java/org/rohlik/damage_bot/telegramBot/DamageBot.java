@@ -125,7 +125,7 @@ public class DamageBot extends TelegramLongPollingBot {
                 createNewBag(chatId, bag, messageText);
             }
         } else if ("OK".equals(messageForControl)) {
-            completeBagProcess(chatId, bag, "ok");
+            completeBagProcess(chatId, bag, "dobra");
         } else if ("NOTOK".equals(messageForControl)) {
             bag.setStatus(messageText.toLowerCase());
             bag.setState("AWAITING_ERROR");
